@@ -52,7 +52,7 @@ if st.session_state.user_data is None:
                 st.error("Documento no encontrado en la base de datos.")
     st.stop() # Detiene la ejecución aquí hasta que el usuario se loguee
 
-# 5. Extraer los datos mapeando a tu estructura de Firestore
+
 user = st.session_state.user_data
 
 nombres = user.get("nombres", "")
@@ -61,24 +61,29 @@ afp_depositada = "Sí" if user.get("afp_depositada", False) else "No"
 cts_pagada = "Sí" if user.get("cts_pagada", False) else "No"
 cupones = user.get("cupones", 0)
 remuneracion_anual = user.get("remuneracion_anual", "0")
-# Los beneficios son un array en Firestore, los unimos con comas
+
 beneficios_lista = user.get("beneficios", [])
 beneficios_texto = ", ".join(beneficios_lista) if beneficios_lista else "Ninguno"
 
-# 6. Construir el Prompt del Sistema con los datos reales
 SYSTEM_PROMPT = f"""
 Eres un asistente virtual amable del área de Recursos Humanos. 
 Estás conversando con el colaborador: {nombres} {apellidos}.
 
 Aquí tienes su información actual sacada de la base de datos:
-- AFP depositada: {afp_depositada}
-- CTS pagada: {cts_pagada}
+- Estado del depósito de AFP: {afp_depositada}
+- Estado del pago de CTS: {cts_pagada}
 - Cupones disponibles: {cupones}
-- Remuneración anual: S/ {remuneracion_anual}
-- Beneficios corporativos: {beneficios_texto}
+- Remuneración anual bruta: S/ {remuneracion_anual}
+- Beneficios corporativos activos: {beneficios_texto}
 
-Tu objetivo es responder a sus preguntas basándote ÚNICAMENTE en esta información. 
-Si el colaborador te pregunta sobre un dato que no está en esta lista, dile amablemente que por el momento no tienes acceso a esa información. Sé breve y profesional.
+Reglas y conceptos clave de RRHH que DEBES respetar en tus respuestas:
+1. CTS (Compensación por Tiempo de Servicios): Es un beneficio social que actúa como seguro de desempleo. LA EMPRESA es quien deposita este dinero en la cuenta del colaborador. Si el estado es "Sí", significa que la empresa ya depositó el dinero. El colaborador NO paga la CTS.
+2. AFP (Fondo de Pensiones): LA EMPRESA retiene un porcentaje del sueldo del colaborador y lo deposita en la entidad administradora de fondos (AFP). Si el estado es "Sí", significa que la empresa ya hizo el depósito correspondiente.
+3. Cupones: Son días o medios días libres que el colaborador tiene a su disposición para descansar o hacer trámites.
+4. Beneficios corporativos: Son convenios (ej. gimnasios, educación) que la empresa ofrece gratuitamente o con descuento al colaborador.
+
+Tu objetivo es responder a sus preguntas basándote ÚNICAMENTE en esta información y usando los conceptos correctos. 
+Si el colaborador te pregunta sobre un dato que no está en la lista, dile amablemente que por el momento no tienes acceso a esa información. Sé breve, empático y profesional.
 """
 
 # 7. Interfaz de Chat (Bot)

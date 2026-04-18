@@ -35,7 +35,7 @@ if "empleado_data" not in st.session_state:
     if st.button("Ingresar"):
         if dni_input and nombre_input:
             # Buscar en Firebase
-            doc_ref = db.collection("empleados").document(dni_input)
+            doc_ref = db.collection("documents").document(dni_input)
             doc = doc_ref.get()
             
             if doc.exists:

@@ -1,3 +1,4 @@
 python-dotenv
 groq==0.13.1
 streamlit
+firebase-admin

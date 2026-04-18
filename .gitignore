@@ -4,3 +4,5 @@
 # Ocultar carpetas caché de Python
 __pycache__/
 .venv/
+
+chatbot-firebase-key.json

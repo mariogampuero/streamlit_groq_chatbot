@@ -11,7 +11,6 @@ st.set_page_config(page_title="RRHH Hub PUCP", page_icon="🏢", layout="wide")
 @st.cache_resource
 def init_firebase():
     if not firebase_admin._apps:
-        # Lee el TOML que guardaste en st.secrets de Streamlit Cloud
         cred_dict = dict(st.secrets["firebase_service_account"])
         cred = credentials.Certificate(cred_dict)
         firebase_admin.initialize_app(cred)
@@ -54,7 +53,7 @@ def actualizar_hobbies(dni, lista_hobbies):
 
 # --- INTERFAZ DE USUARIO ---
 
-st.title("🤖 Asistente de RRHH & Networking - PUCP")
+st.title("🤖 Bot Asistente de RRHH & Networking - PUCP")
 
 if "user_data" not in st.session_state:
     st.session_state.user_data = None

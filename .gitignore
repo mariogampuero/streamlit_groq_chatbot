@@ -1,0 +1,6 @@
+# Ocultar variables de entorno (Aquí está tu llave)
+.env
+
+# Ocultar carpetas caché de Python
+__pycache__/
+.venv/

@@ -1,91 +1,130 @@
 import os
 import streamlit as st
-from groq import Groq
-from dotenv import load_dotenv
 import firebase_admin
 from firebase_admin import credentials, firestore
+from groq import Groq
 
-# 1. INICIALIZAR FIREBASE (Evitar reinicialización)
-if not firebase_admin._apps:
-    # En local usa el JSON, en Streamlit Cloud podrías usar secretos
-    try:
-        cred = credentials.Certificate("firebase-key.json")
+# 1. Configuración de la página
+st.set_page_config(page_title="Chatbot RRHH PUCP", page_icon="🤖", layout="centered")
+
+# 2. Inicializar conexión a Firebase
+@st.cache_resource
+def init_firebase():
+    if not firebase_admin._apps:
+        # Aquí lee el TOML que guardamos en st.secrets
+        cred_dict = dict(st.secrets["firebase_service_account"])
+        cred = credentials.Certificate(cred_dict)
         firebase_admin.initialize_app(cred)
-    except:
-        # Esto es para cuando lo subas a Streamlit Cloud usando secretos
-        import json
-        firebase_creds = dict(st.secrets["firebase_service_account"])
-        cred = credentials.Certificate(firebase_creds)
-        firebase_admin.initialize_app(cred)
+    return firestore.client()
 
-db = firestore.client()
+db = init_firebase()
 
-# 2. CONFIGURACIÓN GROQ
-load_dotenv()
-client = Groq(api_key=os.getenv("GROQ_API_KEY") or st.secrets["GROQ_API_KEY"])
+# 3. Inicializar conexión a Groq
+GROQ_API_KEY = st.secrets.get("GROQ_API_KEY")
+if not GROQ_API_KEY:
+    st.error("Falta GROQ_API_KEY en st.secrets.")
+    st.stop()
+client = Groq(api_key=GROQ_API_KEY)
 
-st.title("🏢 RRHH Inteligente con Firebase")
+# 4. Lógica de Autenticación (Login con DNI)
+st.title("🤖 Asistente de RRHH - PUCP")
 
-# 3. FLUJO DE AUTENTICACIÓN
-if "empleado_data" not in st.session_state:
-    st.subheader("Bienvenido. Por favor identifícate:")
-    dni_input = st.text_input("Ingresa tu DNI:")
-    nombre_input = st.text_input("Ingresa tu nombre completo:")
+# Estado de la sesión para guardar los datos del usuario logueado
+if "user_data" not in st.session_state:
+    st.session_state.user_data = None
+
+# Pantalla de Login
+if st.session_state.user_data is None:
+    st.write("Por favor, ingresa tu número de documento para acceder.")
+    dni_input = st.text_input("DNI", max_chars=8)
     
     if st.button("Ingresar"):
-        if dni_input and nombre_input:
-            # Buscar en Firebase
-            doc_ref = db.collection("documents").document(dni_input)
+        if dni_input:
+            # Buscar en la colección "documentos" el ID correspondiente al DNI
+            doc_ref = db.collection("documentos").document(dni_input)
             doc = doc_ref.get()
             
             if doc.exists:
-                data = doc.to_dict()
-                # Validar nombre simple (opcional)
-                st.session_state.empleado_data = data
-                st.success(f"Bienvenido/a {data['nombre']}")
-                st.rerun()
+                # Guardar la info de Firestore en la memoria de Streamlit
+                st.session_state.user_data = doc.to_dict()
+                st.rerun() # Recargar la página para entrar al chat
             else:
-                st.error("DNI no encontrado en la base de datos.")
-        else:
-            st.warning("Por favor completa ambos campos.")
-    st.stop() # No mostrar el chat hasta que se loguee
+                st.error("Documento no encontrado en la base de datos.")
+    st.stop() # Detiene la ejecución aquí hasta que el usuario se loguee
 
-# 4. CHAT UNA VEZ LOGUEADO
-user_data = st.session_state.empleado_data
+# 5. Extraer los datos mapeando a tu estructura de Firestore
+user = st.session_state.user_data
 
-# Construimos un contexto ultra específico con los datos de Firebase
-CONTEXTO_PERSONALIZADO = f"""
-Eres el asistente de RRHH. Estás atendiendo a {user_data['nombre']}.
-Datos actuales del empleado desde la base de datos:
-- Remuneración: S/ {user_data['remuneracion']}
-- Cupones disponibles: {user_data['cupones']}
-- ¿CTS Pagada?: {'Sí, ambas cuotas' if user_data['cts_pagada'] else 'No, pendiente'}
-- ¿AFP Depositada?: {'Sí' if user_data['afp_depositada'] else 'No'}
-- Beneficios actuales: {', '.join(user_data['beneficios'])}
+nombres = user.get("nombres", "")
+apellidos = user.get("apellidos", "")
+afp_depositada = "Sí" if user.get("afp_depositada", False) else "No"
+cts_pagada = "Sí" if user.get("cts_pagada", False) else "No"
+cupones = user.get("cupones", 0)
+remuneracion_anual = user.get("remuneracion_anual", "0")
+# Los beneficios son un array en Firestore, los unimos con comas
+beneficios_lista = user.get("beneficios", [])
+beneficios_texto = ", ".join(beneficios_lista) if beneficios_lista else "Ninguno"
+
+# 6. Construir el Prompt del Sistema con los datos reales
+SYSTEM_PROMPT = f"""
+Eres un asistente virtual amable del área de Recursos Humanos. 
+Estás conversando con el colaborador: {nombres} {apellidos}.
+
+Aquí tienes su información actual sacada de la base de datos:
+- AFP depositada: {afp_depositada}
+- CTS pagada: {cts_pagada}
+- Cupones disponibles: {cupones}
+- Remuneración anual: S/ {remuneracion_anual}
+- Beneficios corporativos: {beneficios_texto}
+
+Tu objetivo es responder a sus preguntas basándote ÚNICAMENTE en esta información. 
+Si el colaborador te pregunta sobre un dato que no está en esta lista, dile amablemente que por el momento no tienes acceso a esa información. Sé breve y profesional.
 """
 
+# 7. Interfaz de Chat (Bot)
+st.write(f"¡Hola, **{nombres} {apellidos}**! 👋")
+if st.button("Cerrar sesión"):
+    st.session_state.user_data = None
+    st.session_state.chat_history = []
+    st.rerun()
+
+st.divider()
+
+# Inicializar historial de chat
 if "chat_history" not in st.session_state:
     st.session_state.chat_history = []
 
+# Mostrar mensajes anteriores
 for msg in st.session_state.chat_history:
-    with st.chat_message(msg["role"]): st.markdown(msg["content"])
+    with st.chat_message(msg["role"]):
+        st.markdown(msg["content"])
 
-user_input = st.chat_input("¿Qué duda tienes sobre tus pagos o beneficios?")
+# Input de usuario
+user_input = st.chat_input("Pregúntame sobre tus beneficios, CTS, AFP o remuneración...")
 
 if user_input:
+    # 1. Guardar y mostrar mensaje del usuario
     st.session_state.chat_history.append({"role": "user", "content": user_input})
-    with st.chat_message("user"): st.markdown(user_input)
+    with st.chat_message("user"):
+        st.markdown(user_input)
 
-    messages = [
-        {"role": "system", "content": CONTEXTO_PERSONALIZADO},
-        *st.session_state.chat_history
-    ]
+    # 2. Construir el arreglo de mensajes para la API
+    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+    messages.extend(st.session_state.chat_history)
 
-    response = client.chat.completions.create(
-        model="llama-3.1-8b-instant",
-        messages=messages
-    )
+    # 3. Llamada a Groq (Modelo Llama 3)
+    try:
+        response = client.chat.completions.create(
+            model="llama-3.1-8b-instant",
+            messages=messages,
+            temperature=0.5,
+        )
+        respuesta_texto = response.choices[0].message.content
+    except Exception as e:
+        respuesta_texto = f"Lo siento, ocurrió un error al consultar: `{e}`"
+
+    # 4. Mostrar y guardar respuesta del asistente
+    with st.chat_message("assistant"):
+        st.markdown(respuesta_texto)
     
-    answer = response.choices[0].message.content
-    with st.chat_message("assistant"): st.markdown(answer)
-    st.session_state.chat_history.append({"role": "assistant", "content": answer})
+    st.session_state.chat_history.append({"role": "assistant", "content": respuesta_texto})
